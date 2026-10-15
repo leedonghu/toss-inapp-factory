@@ -130,7 +130,9 @@ class TossAIFactoryOrchestrator:
                     result = json.loads(self.require_file(report).read_text(encoding="utf-8-sig"))
                     if not isinstance(result, dict) or type(result.get("passed")) is not bool:
                         raise ValueError("Review requires a boolean passed field")
-                    if not isinstance(result.get("findings"), list) or not isinstance(result.get("checks"), list) or not result["checks"]:
+                    if (not isinstance(result.get("findings"), list)
+                            or not isinstance(result.get("checks"), list) or not result["checks"]
+                            or not all(isinstance(c, str) and c.strip() for c in result["checks"])):
                         raise ValueError("Review requires findings and nonempty checks arrays")
                     task.output_artifacts = [report]
                     if not result["passed"]:
@@ -142,7 +144,7 @@ class TossAIFactoryOrchestrator:
                     harness.run_script("build")
                     task.output_artifacts = [harness.build_ait_bundle()]
                 task.status = TaskStatus.SUCCESS
-            except (CommandError, ValueError, OSError) as exc:
+            except (CommandError, ValueError, OSError, TypeError, KeyError) as exc:
                 if task.status != TaskStatus.NEEDS_FIX:
                     task.status = TaskStatus.FAILED
                 task.feedback_notes = str(exc)

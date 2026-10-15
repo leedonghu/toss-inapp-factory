@@ -24,6 +24,8 @@ class TossHarnessIntegration:
 
     def run_script(self, name):
         package = json.loads((self.project_path / "package.json").read_text(encoding="utf-8-sig"))
+        if not isinstance(package, dict) or not isinstance(package.get("scripts"), dict):
+            raise ValueError("package.json must contain a scripts object")
         script = package.get("scripts", {}).get(name)
         if not isinstance(script, str) or not script.strip():
             raise ValueError(f"Required package.json script missing: {name}")
