@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from integrations.toss_harness import TossHarnessIntegration
 from orchestrator.orchestrator import TossAIFactoryOrchestrator, ROOT, load_config, DEFAULT_CONFIG, main
-from orchestrator.process import CommandError, run_command
+from orchestrator.process import CommandError, resolve_command, run_command
 from orchestrator.task_schema import TaskMessage, TaskStatus
 
 
@@ -150,6 +150,22 @@ class FactoryTests(unittest.TestCase):
         with patch("orchestrator.orchestrator.resolve_command", side_effect=CommandError("missing")):
             with self.assertRaisesRegex(CommandError, "Preflight"):
                 self.factory.preflight()
+
+    def test_npm_shim_runs_through_node(self):
+        script = self.project / "node_modules" / "@scope" / "tool" / "bin" / "tool.js"
+        script.parent.mkdir(parents=True)
+        script.write_text("", encoding="utf-8")
+        self.write("tool.cmd", '@ECHO off\r\n"%_prog%"  "%dp0%\\node_modules\\@scope\\tool\\bin\\tool.js" %*\r\n')
+        found = {"tool": str(self.project / "tool.cmd"), "node": "node.exe"}
+        with patch("orchestrator.process.shutil.which", side_effect=found.get):
+            self.assertEqual(resolve_command(["tool", "exec", "-"]), ["node.exe", str(script), "exec", "-"])
+
+    def test_unknown_batch_wrapper_is_rejected(self):
+        self.write("tool.bat", "@echo off\r\nsomething.exe %*\r\n")
+        found = {"tool": str(self.project / "tool.bat"), "node": "node.exe"}
+        with patch("orchestrator.process.shutil.which", side_effect=found.get):
+            with self.assertRaisesRegex(CommandError, "batch wrapper"):
+                resolve_command(["tool"])
 
     def test_invalid_workflow(self):
         config = load_config(DEFAULT_CONFIG)

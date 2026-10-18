@@ -1,4 +1,5 @@
 """Argument-safe subprocess execution, including npm on Windows."""
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,16 +9,31 @@ class CommandError(RuntimeError):
     pass
 
 
+NPM_SHIM_SCRIPT = re.compile(r'"%dp0%\\(node_modules\\[^"%]+\.(?:c|m)?js)"', re.IGNORECASE)
+
+
+def npm_shim_script(wrapper):
+    """Return the JS entry point of an npm-generated .cmd shim, or None."""
+    try:
+        match = NPM_SHIM_SCRIPT.search(Path(wrapper).read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return None
+    script = Path(wrapper).parent / match.group(1) if match else None
+    return script if script and script.is_file() else None
+
+
 def resolve_command(command):
     executable = shutil.which(command[0])
     if not executable:
         raise CommandError(f"Executable not found: {command[0]}")
     if Path(executable).suffix.lower() in (".cmd", ".bat"):
+        node = shutil.which("node")
         if Path(executable).stem.lower() in ("npm", "npx"):
             script = Path(executable).parent / "node_modules" / "npm" / "bin" / f"{Path(executable).stem.lower()}-cli.js"
-            node = shutil.which("node")
-            if node and script.is_file():
-                return [node, str(script), *command[1:]]
+        else:
+            script = npm_shim_script(executable)
+        if node and script and script.is_file():
+            return [node, str(script), *command[1:]]
         raise CommandError(f"Use a native executable or explicit node adapter instead of a batch wrapper: {executable}")
     return [executable, *command[1:]]
 
