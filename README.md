@@ -32,14 +32,16 @@ python -m orchestrator.orchestrator projects/roulette --idea "점심 메뉴 선�
 `--config <파일>`로 다른 설정을 지정할 수 있습니다.
 
 - `workspace_dir`: 저장소 루트 기준 상대 경로 또는 절대 경로. 기본 프로젝트는 그 아래 `roulette`입니다.
-- `timeout_seconds`: 명령 하나의 제한 시간. 기본 900초.
-- `cli_command`, `exec_args`: 실행 파일과 고정 인자. 프롬프트는 UTF-8 stdin으로 전달합니다.
+- `timeout_seconds`: 명령 하나의 제한 시간. 기본 1800초.
+- `cli_command`, `exec_args`: 실행 파일과 인자. `{prompt}`가 있으면 해당 인자에 프롬프트를 치환하고, 없으면 UTF-8 stdin으로 전달합니다. 인자는 셸을 거치지 않고 전달합니다.
 - 워크플로는 PLAN, IMPLEMENT, UI_REVIEW, CROSS_REVIEW, BUNDLE 순서를 검증합니다.
 - 단계별 `agent`를 바꾸면 해당 설정의 CLI를 사용합니다.
 
-기본 설정의 `agy`는 이 PC에서 발견되지 않았습니다. Antigravity의 headless CLI와 stdin 지원도 확인되지 않았으므로 예시 설정으로 취급하세요.
-사용 가능한 CLI로 `UI_REVIEW`의 `agent`를 변경하거나, 검증된 실행 파일과 인자를 설정해야 전체 실행이 가능합니다.
-권한을 우회하는 옵션은 사용하지 않습니다. 권한이나 네트워크 제한으로 작업을 수행하지 못하면 실패로 중단합니다.
+기본 설정은 각 CLI의 비대화형 실행 규격에 맞춰 구성되어 있습니다:
+- `claude`: `-p --permission-mode acceptEdits` (비대화형 프롬프트 및 프로젝트 내 파일 편집 허용)
+- `codex`: `exec --sandbox workspace-write -c sandbox_workspace_write.network_access=true --skip-git-repo-check -` (워크스페이스 쓰기 샌드박스 유지 및 `npm install`용 네트워크 허용)
+- `antigravity` (`agy`): `--mode accept-edits --output-format json -p={prompt}` (프롬프트를 `-p=`에 붙여 전달하며, 리뷰 리포트 파일 작성 허용)
+권한 전체를 우회하는 위험 옵션(`--dangerously-*`)은 사용하지 않습니다. 권한이나 네트워크 제한으로 작업을 수행하지 못하면 실패로 중단합니다.
 Windows npm/npx는 npm의 Node 진입점을 직접 실행합니다. 다른 `.cmd`/`.bat` 래퍼는 자동 실행하지 않으며 네이티브 실행 파일 또는 Node 어댑터를 설정해야 합니다.
 
 ## 단계별 완료 조건
@@ -59,9 +61,19 @@ Windows npm/npx는 npm의 Node 진입점을 직접 실행합니다. 다른 `.cmd
 
 실행 기록은 `<프로젝트>/.factory/<run-id>/`에 저장됩니다.
 각 단계의 상태 JSON, 에이전트 stdout/stderr, 작업 목록, 리뷰 결과가 포함됩니다.
-이전 실행의 작업 목록/리뷰를 재사용하지 않습니다.
+새 실행은 이전 실행의 작업 목록/리뷰를 재사용하지 않습니다. `--resume`에서는 완료된 단계의 검증된 작업 목록/리뷰만 복사합니다.
 검토 탈락은 `NEEDS_FIX`, 명령/검증 오류는 `FAILED`로 기록합니다.
-실패 이유를 수정한 뒤 재실행하세요. 자동 수정 반복이나 중간 단계 재개는 아직 지원하지 않습니다.
+실패 이유를 수정한 뒤 `--resume <실행 ID>`로 첫 미완료 단계부터 재개할 수 있습니다.
+
+```powershell
+python -m orchestrator.orchestrator projects/roulette --resume <실행 ID>
+```
+
+실행 ID는 `projects/roulette/.factory/` 아래 폴더 이름입니다. 연속된 SUCCESS 단계를 건너뛰고 FAILED, NEEDS_FIX, IN_PROGRESS 또는 기록이 없는 첫 단계부터 실행합니다. IN_PROGRESS 기록을 재개하기 전에는 기존 프로세스가 종료되었는지 확인하세요. 같은 앱에 두 실행을 동시에 진행하지 마세요.
+
+기존 기록은 보존되며 새 `.factory/<실행 ID>/resume.json`에 원본 실행과 재개 단계를 기록합니다. 재시도하는 단계의 이전 보고서는 복사하지 않습니다. 기획 단계부터 재개할 때는 원래 `--idea`도 다시 지정하세요.
+
+재개는 현재 앱 파일을 사용하며 과거 소스를 복원하거나 변경 여부를 비교하지 않습니다. 이미 통과한 리뷰 이후 앱 코드를 변경했다면 리뷰가 낡을 수 있으므로 `--resume` 없이 전체 검증을 다시 실행하세요. BUNDLE에서는 타입 검사·린트·테스트·빌드를 다시 수행합니다. 자동 수정 반복은 지원하지 않습니다.
 
 완료는 **사람이 확인할 번들 준비 완료**를 의미합니다. 업로드, 심사 제출, 출시는 구현하지 않았습니다.
 기기별 실측 QA와 심사 통과를 보장하지 않습니다.
@@ -90,3 +102,6 @@ toss-app-factory/
 - [앱인토스 개발자센터](https://developers-apps-in-toss.toss.im/)
 
 CLI 명령과 SDK 규격은 업데이트될 수 있으므로 실제 앱 생성 시 공식 문서를 다시 확인하세요.
+
+## 실행 
+python -m orchestrator.orchestrator projects/roulette --idea "점심 메뉴 선택 룰렛"
