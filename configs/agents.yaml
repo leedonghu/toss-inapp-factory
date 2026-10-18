@@ -1,9 +1,9 @@
 {
-  "factory": {"name": "Toss MiniApp AI Factory", "version": "0.2.0", "workspace_dir": "projects", "timeout_seconds": 900},
+  "factory": {"name": "Toss MiniApp AI Factory", "version": "0.2.0", "workspace_dir": "projects", "timeout_seconds": 1800},
   "agents": {
     "claude": {"cli_command": "claude", "exec_args": ["-p", "--permission-mode", "acceptEdits"]},
-    "codex": {"cli_command": "codex", "exec_args": ["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "-"]},
-    "antigravity": {"cli_command": "agy", "exec_args": ["-p", "--output-format", "json"]}
+    "codex": {"cli_command": "codex", "exec_args": ["exec", "--sandbox", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", "--skip-git-repo-check", "-"]},
+    "antigravity": {"cli_command": "agy", "exec_args": ["--mode", "accept-edits", "--output-format", "json", "-p={prompt}"]}
   },
   "workflows": {"default_pipeline": [
     {"agent": "claude", "action": "PLAN"},
