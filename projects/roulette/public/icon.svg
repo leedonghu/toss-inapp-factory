@@ -1,1 +1,110 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="24" fill="#3182f6"/><circle cx="50" cy="53" r="32" fill="#e8f3ff"/><path d="M50 53V21A32 32 0 0 1 82 53Z" fill="#8bc6ff"/><path d="M50 53V85A32 32 0 0 1 18 53Z" fill="#8bc6ff"/><circle cx="50" cy="53" r="9" fill="#3182f6"/><path d="M42 13H58L50 29Z" fill="#fff"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="60" y1="30" x2="540" y2="570" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4593FC" />
+      <stop offset="55%" stop-color="#3182F6" />
+      <stop offset="100%" stop-color="#1B64DA" />
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="300" cy="140" r="340" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="rimGrad" x1="300" y1="88" x2="300" y2="544" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#E8F3FF" />
+    </linearGradient>
+    <linearGradient id="hubGrad" x1="260" y1="276" x2="340" y2="356" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4593FC" />
+      <stop offset="100%" stop-color="#1B64DA" />
+    </linearGradient>
+    <linearGradient id="pointerGrad" x1="300" y1="54" x2="300" y2="148" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF6B6B" />
+      <stop offset="100%" stop-color="#F04452" />
+    </linearGradient>
+    <filter id="wheelShadow" x="48" y="68" width="504" height="516" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#0D3880" flood-opacity="0.35" />
+    </filter>
+    <filter id="hubShadow" x="220" y="242" width="160" height="160" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#163056" flood-opacity="0.22" />
+    </filter>
+    <filter id="pointerShadow" x="240" y="44" width="120" height="130" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#0D3880" flood-opacity="0.32" />
+    </filter>
+  </defs>
+
+  <!-- App Icon Squircle Background -->
+  <rect width="600" height="600" rx="136" fill="url(#bgGrad)" />
+  <rect width="600" height="600" rx="136" fill="url(#bgGlow)" />
+
+  <!-- Subtle Sparkles -->
+  <g fill="#FFFFFF" opacity="0.85">
+    <path d="M108 106 L113 121 L128 126 L113 131 L108 146 L103 131 L88 126 L103 121 Z" />
+    <path d="M498 112 L502 123 L513 127 L502 131 L498 142 L494 131 L483 127 L494 123 Z" opacity="0.75" />
+    <circle cx="94" cy="476" r="6" opacity="0.5" />
+    <circle cx="510" cy="468" r="8" opacity="0.45" />
+  </g>
+
+  <!-- Outer Wheel Frame -->
+  <g filter="url(#wheelShadow)">
+    <circle cx="300" cy="316" r="224" fill="url(#rimGrad)" />
+    <circle cx="300" cy="316" r="206" fill="#25364A" />
+  </g>
+
+  <!-- 8 Roulette Segments (Rotated -22.5 deg so top slice is centered under pointer) -->
+  <g transform="rotate(-22.5 300 316)">
+    <!-- Slice 1 (Top Winner Highlight) -->
+    <path d="M300 316 L300 116 A200 200 0 0 1 441.42 174.58 Z" fill="#FFE9B5" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round" />
+    <!-- Slice 2 -->
+    <path d="M300 316 L441.42 174.58 A200 200 0 0 1 500 316 Z" fill="#C9F0E5" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round" />
+    <!-- Slice 3 -->
+    <path d="M300 316 L500 316 A200 200 0 0 1 441.42 457.42 Z" fill="#FFDBD3" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round" />
+    <!-- Slice 4 -->
+    <path d="M300 316 L441.42 457.42 A200 200 0 0 1 300 516 Z" fill="#D5E8FF" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round" />
+    <!-- Slice 5 -->
+    <path d="M300 316 L300 516 A200 200 0 0 1 158.58 457.42 Z" fill="#DFDCFF" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round" />
+    <!-- Slice 6 -->
+    <path d="M300 316 L158.58 457.42 A200 200 0 0 1 100 316 Z" fill="#E3EDC8" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round" />
+    <!-- Slice 7 -->
+    <path d="M300 316 L100 316 A200 200 0 0 1 158.58 174.58 Z" fill="#F9DCEC" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round" />
+    <!-- Slice 8 -->
+    <path d="M300 316 L158.58 174.58 A200 200 0 0 1 300 116 Z" fill="#CDEFF6" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round" />
+
+    <!-- Segment Dots at Mid-Angle (radius 138) -->
+    <g fill="#25364A" opacity="0.78">
+      <circle cx="352.8" cy="188.5" r="10" fill="#F59F00" opacity="1" />
+      <circle cx="427.5" cy="263.2" r="9" />
+      <circle cx="427.5" cy="368.8" r="9" />
+      <circle cx="352.8" cy="443.5" r="9" />
+      <circle cx="247.2" cy="443.5" r="9" />
+      <circle cx="172.5" cy="368.8" r="9" />
+      <circle cx="172.5" cy="263.2" r="9" />
+      <circle cx="247.2" cy="188.5" r="9" />
+    </g>
+
+    <!-- Rim Pegs at Boundary Angles (radius 213) -->
+    <g fill="#3182F6">
+      <circle cx="300" cy="103" r="6" />
+      <circle cx="450.6" cy="165.4" r="6" />
+      <circle cx="513" cy="316" r="6" />
+      <circle cx="450.6" cy="466.6" r="6" />
+      <circle cx="300" cy="529" r="6" />
+      <circle cx="149.4" cy="466.6" r="6" />
+      <circle cx="87" cy="316" r="6" />
+      <circle cx="149.4" cy="165.4" r="6" />
+    </g>
+  </g>
+
+  <!-- Center Check Hub -->
+  <g filter="url(#hubShadow)">
+    <circle cx="300" cy="316" r="60" fill="#FFFFFF" />
+    <circle cx="300" cy="316" r="44" fill="url(#hubGrad)" />
+    <path d="M281 316 L294 329 L321 301" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Top Pointer Pin -->
+  <g filter="url(#pointerShadow)">
+    <path d="M300 148 L266 88 C258 74 268 54 286 54 H314 C332 54 342 74 334 88 Z" fill="#FFFFFF" />
+    <path d="M300 136 L274 90 C269 81 275 64 288 64 H312 C325 64 331 81 326 90 Z" fill="url(#pointerGrad)" />
+    <circle cx="300" cy="83" r="10" fill="#FFFFFF" />
+  </g>
+</svg>

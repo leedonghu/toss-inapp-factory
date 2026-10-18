@@ -17,6 +17,7 @@ if __package__ in (None, ""):
 
 from orchestrator.process import CommandError, resolve_command, run_command
 from orchestrator.task_schema import TaskMessage, TaskType, TaskStatus
+from orchestrator.activity import ROLES, record_event, record_check, write_report
 from integrations.toss_harness import TossHarnessIntegration
 
 ROOT = Path(__file__).resolve().parents[1]                 # 저장소 루트
@@ -81,6 +82,8 @@ class TossAIFactoryOrchestrator:
     def save_task(self, task, index):
         """단계 상태를 `NN-<단계>.json` 파일로 저장한다 (같은 단계는 덮어씀)."""
         (self.run_dir / f"{index:02d}-{task.task_type.value}.json").write_text(task.to_json(), encoding="utf-8")
+        record_event(self.run_dir, task, index)
+        write_report(self.run_dir)
 
     def require_file(self, relative):
         """에이전트가 만들어야 하는 산출물이 프로젝트 안에 비어 있지 않게 존재하는지 확인한다."""
@@ -109,6 +112,7 @@ class TossAIFactoryOrchestrator:
         출력은 `NN-<에이전트>.stdout.log` / `.stderr.log`로 실행 기록 디렉터리에 남는다.
         """
         agent = self.config["agents"][agent_name]
+        (self.run_dir / f"{index:02d}-{agent_name}.prompt.txt").write_text(prompt, encoding="utf-8")
         uses_prompt_arg = any("{prompt}" in arg for arg in agent["exec_args"])
         args = [arg.replace("{prompt}", prompt) for arg in agent["exec_args"]]
         output = run_command([agent["cli_command"], *args], self.project_dir,
@@ -170,7 +174,16 @@ class TossAIFactoryOrchestrator:
         """npm 검사를 순서대로 실행하고 출력을 `NN-npm-<스크립트>.*.log`로 남긴다."""
         harness.log_prefix = self.run_dir / f"{index:02d}-npm"
         for name in CHECK_SCRIPTS:
-            harness.run_script(name)
+            record_check(self.run_dir, index, name, "IN_PROGRESS")
+            try:
+                harness.run_script(name)
+            except (CommandError, ValueError, OSError, TypeError, KeyError) as exc:
+                record_check(self.run_dir, index, name, "FAILED", str(exc))
+                raise
+            else:
+                record_check(self.run_dir, index, name, "SUCCESS")
+            finally:
+                write_report(self.run_dir)
 
     def check_logs(self):
         """리뷰어에게 알려줄 IMPLEMENT 단계 npm 로그 경로 (프로젝트 기준 상대 경로)."""
@@ -256,7 +269,7 @@ class TossAIFactoryOrchestrator:
                 continue
             action = step["action"]
             task = TaskMessage(to_agent=step["agent"], task_type=TaskType(action),
-                               status=TaskStatus.IN_PROGRESS, title=action)
+                               status=TaskStatus.IN_PROGRESS, title=action, description=ROLES[action])
             # 시작 시점에도 기록해 두면, 중간에 프로세스가 죽어도 어느 단계였는지 남는다.
             self.save_task(task, index)
             print(f"[AI Factory] {action}", flush=True)
@@ -338,10 +351,18 @@ def main(argv=None):
     parser.add_argument("--idea", default="점심 메뉴 및 일상 선택을 도와주는 룰렛 토스 미니앱")
     parser.add_argument("--check", action="store_true", help="Check configuration and executables only")
     parser.add_argument("--resume", metavar="RUN_ID", help="Resume the first incomplete stage of an existing run")
+    parser.add_argument("--report", metavar="RUN_ID", help="Generate WORK_LOG.md from existing logs without running AI")
     args = parser.parse_args(argv)
     try:
         factory = TossAIFactoryOrchestrator(args.project_dir, args.config)
-        if args.check:
+        if args.report:
+            if args.resume or args.check:
+                raise ValueError("--report cannot be combined with --resume or --check")
+            run = (factory.project_dir / ".factory" / args.report).resolve()
+            if Path(args.report).name != args.report or run.parent != factory.project_dir / ".factory" or not run.is_dir():
+                raise ValueError("--report requires an existing run ID in this project")
+            print(write_report(run))
+        elif args.check:
             # --check는 설정과 CLI 존재 여부만 확인하고, 프로젝트 디렉터리는 만들지 않는다.
             factory.preflight()
             print(f"Preflight OK: {factory.project_dir}")

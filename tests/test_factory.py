@@ -12,6 +12,7 @@ from integrations.toss_harness import TossHarnessIntegration
 from orchestrator.orchestrator import TossAIFactoryOrchestrator, ROOT, load_config, DEFAULT_CONFIG, main
 from orchestrator.process import CommandError, resolve_command, run_command
 from orchestrator.task_schema import TaskMessage, TaskStatus
+from orchestrator.activity import write_report
 
 
 class FactoryTests(unittest.TestCase):
@@ -122,6 +123,47 @@ class FactoryTests(unittest.TestCase):
         self.assertTrue(Path(result.output_artifacts[0]).is_file())
         self.assertEqual(len(list(self.factory.run_dir.glob("[0-9][0-9]-*.json"))), 5)
 
+    def test_activity_records_success_failure_and_reuse(self):
+        def fail(*args):
+            if args[-1] == 3:
+                raise CommandError("UI unavailable")
+            self.fake_agent(*args)
+        with self.assertRaises(CommandError):
+            self.run_pipeline(agent=fail)
+        original = self.factory.run_dir
+        events = [json.loads(line) for line in (original / "activity.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(events[-1]["status"], "FAILED")
+        self.assertEqual(events[-1]["error"], "UI unavailable")
+        self.assertIn("UI unavailable", (original / "WORK_LOG.md").read_text(encoding="utf-8"))
+        (original / "01-claude.stdout.log").write_text("기획 작업을 완료했습니다", encoding="utf-8")
+        self.run_pipeline(resume=original.name)
+        report = (self.factory.run_dir / "WORK_LOG.md").read_text(encoding="utf-8")
+        self.assertIn("기획 작업을 완료했습니다", report)
+        self.assertIn("이전 실행 결과 재사용", report)
+        events = [json.loads(line) for line in (self.factory.run_dir / "activity.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(events[0]["mode"], "reused")
+        self.assertEqual(events[0]["source_run"], original.name)
+        self.assertEqual(events[-1]["status"], "SUCCESS")
+
+    def test_report_only_does_not_call_ai_or_invent_events(self):
+        self.run_pipeline()
+        run = self.factory.run_dir
+        before = (run / "activity.jsonl").read_bytes()
+        with patch.object(TossAIFactoryOrchestrator, "preflight") as check, patch.object(TossAIFactoryOrchestrator, "run_agent") as agent, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main([str(self.project), "--report", run.name]), 0)
+        check.assert_not_called()
+        agent.assert_not_called()
+        self.assertEqual(before, (run / "activity.jsonl").read_bytes())
+
+    def test_invalid_review_report_does_not_hide_failure(self):
+        def invalid(*args):
+            self.fake_agent(*args)
+            if args[-1] == 3:
+                (self.factory.run_dir / "UI_REVIEW.json").write_text('{broken')
+        with self.assertRaises(json.JSONDecodeError):
+            self.run_pipeline(agent=invalid)
+        self.assertIn("FAILED", (self.factory.run_dir / "WORK_LOG.md").read_text(encoding="utf-8"))
+
     def test_manual_checks_do_not_block_and_are_collected(self):
         def agent(*args):
             self.fake_agent(*args)
@@ -187,7 +229,7 @@ class FactoryTests(unittest.TestCase):
         with self.assertRaises(CommandError):
             self.run_pipeline(agent=fail)
         self.assertEqual(calls, [1])
-        record = json.loads((self.factory.run_dir / "01-PLAN.json").read_text())
+        record = json.loads((self.factory.run_dir / "01-PLAN.json").read_text(encoding="utf-8"))
         self.assertEqual(record["status"], "FAILED")
 
     def test_build_failure_stops_before_review(self):
@@ -210,7 +252,7 @@ class FactoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.run_pipeline(agent=reject)
         self.assertEqual(calls, [1, 2, 3])
-        self.assertEqual(json.loads((self.factory.run_dir / "03-UI_REVIEW.json").read_text())["status"], "NEEDS_FIX")
+        self.assertEqual(json.loads((self.factory.run_dir / "03-UI_REVIEW.json").read_text(encoding="utf-8"))["status"], "NEEDS_FIX")
 
     def test_string_passed_is_rejected(self):
         def invalid(*args):
