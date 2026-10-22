@@ -6,6 +6,7 @@ from pathlib import Path
 ROLES = {
     "PLAN": "기획서 보완 및 완료 기준이 있는 작업 목록 작성",
     "IMPLEMENT": "앱 코드·테스트 구현 및 빌드 검증",
+    "LOGO": "앱 로고 제작·규격 검사 및 디자인 근거 기록",
     "UI_REVIEW": "모바일 화면·터치·접근성 검토",
     "CROSS_REVIEW": "구조·권한·개인정보·제출 요건 교차 검토",
     "BUNDLE": "시스템의 타입 검사·린트·테스트·빌드 및 번들 검증",
@@ -61,8 +62,11 @@ def write_report(run_dir):
              "단계 상태는 엔진 기록이며, 아래 AI 응답은 자기 보고입니다. 실기기 검증을 의미하지 않습니다.",
              "재사용 단계는 원본 실행을 표시합니다. 과거 실행의 시각·이벤트는 추정해서 만들지 않습니다.", ""]
     for index, (action, role) in enumerate(ROLES.items(), 1):
-        filename = f"{index:02d}-{action}.json"
+        matches = sorted(run_dir.glob(f"[0-9][0-9]-{action}.json"))
+        filename = matches[0].name if matches else f"{index:02d}-{action}.json"
         path = run_dir / filename
+        if matches:
+            index = int(filename[:2])
         lines.extend([f"## {index}. {action} — {role}", ""])
         if not path.is_file():
             lines.extend(["상태: 미실행", ""])
