@@ -1,3 +1,6 @@
+import struct
+import zlib
+import hashlib
 import contextlib
 import io
 import json
@@ -13,6 +16,7 @@ from orchestrator.orchestrator import TossAIFactoryOrchestrator, ROOT, load_conf
 from orchestrator.process import CommandError, resolve_command, run_command
 from orchestrator.task_schema import TaskMessage, TaskStatus
 from orchestrator.activity import write_report
+from orchestrator.logo import validate_png
 
 
 class FactoryTests(unittest.TestCase):
@@ -34,7 +38,7 @@ class FactoryTests(unittest.TestCase):
         path.write_text(json.dumps(value) if not isinstance(value, str) else value, encoding="utf-8")
 
     def fake_agent(self, agent, prompt, index):
-        """run_agent 대역. 단계 번호(1=PLAN, 2=IMPLEMENT, 3/4=리뷰)에 맞는 정상 산출물을 만든다."""
+        """run_agent 대역. 단계 번호(1=PLAN, 2=IMPLEMENT, 3=LOGO, 4/5=리뷰)에 맞는 정상 산출물을 만든다."""
         if index == 1:
             self.write("PRD.md", "Test app")
             (self.factory.run_dir / "tasks.json").write_text(json.dumps({"tasks": [
@@ -42,10 +46,86 @@ class FactoryTests(unittest.TestCase):
         elif index == 2:
             self.write("package.json", {"scripts": {key: "test" for key in
                        ("build", "bundle", "test", "lint", "typecheck")}})
+        elif index == 3:
+            self.make_logo()
         else:
-            action = "UI_REVIEW" if index == 3 else "CROSS_REVIEW"
+            action = "UI_REVIEW" if index == 4 else "CROSS_REVIEW"
             (self.factory.run_dir / f"{action}.json").write_text(json.dumps(
                 {"passed": True, "findings": [], "checks": ["Inspected code"]}), encoding="utf-8")
+
+    def make_logo(self, width=600, color=2, transparency=False):
+        def chunk(kind, data):
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+        data = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, 600, 8, color, 0, 0, 0))
+        if transparency:
+            data += chunk(b"tRNS", b"\0" * 6)
+        data += chunk(b"IDAT", zlib.compress((b"\0" + b"\x80" * (width * 3)) * 600)) + chunk(b"IEND", b"")
+        target = self.project / "public/logo-600x600.png"
+        target.parent.mkdir(exist_ok=True)
+        target.write_bytes(data)
+        self.write("LOGO.md", "Original geometric design and visual inspection evidence")
+        self.write(self.factory.run_dir / "LOGO.json", {"passed": True, "sha256": hashlib.sha256(data).hexdigest(),
+                   "checks": ["Visual inspection"], "findings": []})
+        return target
+
+    def test_logo_invalid_formats(self):
+        self.factory.run_dir = self.project
+        for kwargs in ({"width": 599}, {"color": 6}, {"transparency": True}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                validate_png(self.make_logo(**kwargs))
+        target = self.make_logo()
+        target.write_bytes(target.read_bytes()[:-5])
+        with self.assertRaises(ValueError):
+            validate_png(target)
+
+    def test_legacy_run_resumes_at_logo_and_reports_old_reviews(self):
+        self.run_pipeline()
+        run = self.factory.run_dir
+        (run / "03-LOGO.json").unlink()
+        for index, action in ((4, "UI_REVIEW"), (5, "CROSS_REVIEW"), (6, "BUNDLE")):
+            (run / f"{index:02d}-{action}.json").rename(run / f"{index - 1:02d}-{action}.json")
+        report = write_report(run).read_text(encoding="utf-8")
+        self.assertIn("3. UI_REVIEW", report)
+        calls = []
+        def agent(*args):
+            calls.append(args[-1])
+            self.fake_agent(*args)
+        self.run_pipeline(agent=agent, resume=run.name)
+        self.assertEqual(calls, [3, 4, 5])
+
+    def test_rejected_logo_blocks_reviews(self):
+        calls = []
+        def agent(*args):
+            calls.append(args[-1])
+            self.fake_agent(*args)
+            if args[-1] == 3:
+                self.write(self.factory.run_dir / "LOGO.json",
+                           {"passed": False, "findings": ["Unreadable"], "checks": ["24px inspection"]})
+        with self.assertRaisesRegex(ValueError, "LOGO rejected"):
+            self.run_pipeline(agent=agent)
+        self.assertEqual(calls, [1, 2, 3])
+        record = json.loads((self.factory.run_dir / "03-LOGO.json").read_text(encoding="utf-8"))
+        self.assertEqual(record["status"], "NEEDS_FIX")
+
+    def test_logo_missing_stops_pipeline(self):
+        def agent(*args):
+            if args[-1] != 3:
+                self.fake_agent(*args)
+        with self.assertRaisesRegex(ValueError, "Missing"):
+            self.run_pipeline(agent=agent)
+        self.assertFalse((self.project / "app.ait").exists())
+
+    def test_logo_change_after_review_blocks_bundle(self):
+        def agent(*args):
+            self.fake_agent(*args)
+            if args[-1] == 5:
+                report = self.factory.run_dir / "LOGO.json"
+                data = json.loads(report.read_text())
+                data["sha256"] = "stale"
+                report.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "sha256"):
+            self.run_pipeline(agent=agent)
+        self.assertFalse((self.project / "app.ait").exists())
 
     def run_pipeline(self, agent=None, scripts=None, resume=None):
         """preflight·에이전트·npm 스크립트를 패치한 채 파이프라인을 실행한다.
@@ -60,7 +140,7 @@ class FactoryTests(unittest.TestCase):
             return self.factory.run_full_pipeline("test", resume=resume)
 
     def test_resume_each_failed_stage(self):
-        for failed_index in range(1, 6):
+        for failed_index in range(1, 7):
             with self.subTest(stage=failed_index):
                 def agent(*args):
                     if args[-1] == failed_index:
@@ -79,14 +159,14 @@ class FactoryTests(unittest.TestCase):
                     self.fake_agent(*args)
                 result = self.run_pipeline(agent=retry, resume=old_run.name)
                 self.assertEqual(result.status, TaskStatus.SUCCESS)
-                self.assertEqual(calls, list(range(failed_index, 5)))
+                self.assertEqual(calls, list(range(failed_index, 6)))
                 self.assertNotEqual(old_run, self.factory.run_dir)
                 self.assertEqual(old_records, {p.name: p.read_bytes() for p in old_run.iterdir()})
 
     def test_resume_does_not_reuse_failed_review(self):
         def fail(*args):
             self.fake_agent(*args)
-            if args[-1] == 3:
+            if args[-1] == 4:
                 raise CommandError("failed after writing report")
         with self.assertRaises(CommandError):
             self.run_pipeline(agent=fail)
@@ -121,11 +201,11 @@ class FactoryTests(unittest.TestCase):
         self.assertEqual(result.status, TaskStatus.SUCCESS)
         self.assertEqual(calls, ["typecheck", "lint", "test", "build"] * 2 + ["bundle"])
         self.assertTrue(Path(result.output_artifacts[0]).is_file())
-        self.assertEqual(len(list(self.factory.run_dir.glob("[0-9][0-9]-*.json"))), 5)
+        self.assertEqual(len(list(self.factory.run_dir.glob("[0-9][0-9]-*.json"))), 6)
 
     def test_activity_records_success_failure_and_reuse(self):
         def fail(*args):
-            if args[-1] == 3:
+            if args[-1] == 4:
                 raise CommandError("UI unavailable")
             self.fake_agent(*args)
         with self.assertRaises(CommandError):
@@ -158,7 +238,7 @@ class FactoryTests(unittest.TestCase):
     def test_invalid_review_report_does_not_hide_failure(self):
         def invalid(*args):
             self.fake_agent(*args)
-            if args[-1] == 3:
+            if args[-1] == 4:
                 (self.factory.run_dir / "UI_REVIEW.json").write_text('{broken')
         with self.assertRaises(json.JSONDecodeError):
             self.run_pipeline(agent=invalid)
@@ -167,19 +247,19 @@ class FactoryTests(unittest.TestCase):
     def test_manual_checks_do_not_block_and_are_collected(self):
         def agent(*args):
             self.fake_agent(*args)
-            if args[-1] == 4:
+            if args[-1] == 5:
                 (self.factory.run_dir / "CROSS_REVIEW.json").write_text(json.dumps(
                     {"passed": True, "findings": [], "checks": ["Read config"],
                      "manual_checks": ["Test copy on a Toss test build"]}), encoding="utf-8")
         result = self.run_pipeline(agent=agent)
         self.assertEqual(result.status, TaskStatus.SUCCESS)
         manual = json.loads((self.factory.run_dir / "manual_checks.json").read_text(encoding="utf-8"))
-        self.assertEqual(manual, {"UI_REVIEW": [], "CROSS_REVIEW": ["Test copy on a Toss test build"]})
+        self.assertEqual(manual, {"LOGO": [], "UI_REVIEW": [], "CROSS_REVIEW": ["Test copy on a Toss test build"]})
 
     def test_invalid_manual_checks_rejected(self):
         def agent(*args):
             self.fake_agent(*args)
-            if args[-1] == 3:
+            if args[-1] == 4:
                 (self.factory.run_dir / "UI_REVIEW.json").write_text(
                     '{"passed":true,"findings":[],"checks":["x"],"manual_checks":"device"}')
         with self.assertRaisesRegex(ValueError, "manual_checks"):
@@ -196,8 +276,8 @@ class FactoryTests(unittest.TestCase):
             if name == "bundle":
                 self.write("app.ait", "bundle")
         self.run_pipeline(agent=agent, scripts=script)
-        self.assertIn("02-npm-test.stdout.log", prompts[3])
-        self.assertIn("manual_checks", prompts[4])
+        self.assertIn("02-npm-test.stdout.log", prompts[4])
+        self.assertIn("manual_checks", prompts[5])
 
     def test_resume_after_implement_reruns_checks(self):
         def fail(*args):
@@ -246,18 +326,18 @@ class FactoryTests(unittest.TestCase):
         def reject(*args):
             calls.append(args[-1])
             self.fake_agent(*args)
-            if args[-1] == 3:
+            if args[-1] == 4:
                 (self.factory.run_dir / "UI_REVIEW.json").write_text(json.dumps(
                     {"passed": False, "findings": ["broken UI"], "checks": ["layout"]}))
         with self.assertRaises(ValueError):
             self.run_pipeline(agent=reject)
-        self.assertEqual(calls, [1, 2, 3])
-        self.assertEqual(json.loads((self.factory.run_dir / "03-UI_REVIEW.json").read_text(encoding="utf-8"))["status"], "NEEDS_FIX")
+        self.assertEqual(calls, [1, 2, 3, 4])
+        self.assertEqual(json.loads((self.factory.run_dir / "04-UI_REVIEW.json").read_text(encoding="utf-8"))["status"], "NEEDS_FIX")
 
     def test_string_passed_is_rejected(self):
         def invalid(*args):
             self.fake_agent(*args)
-            if args[-1] == 3:
+            if args[-1] == 4:
                 (self.factory.run_dir / "UI_REVIEW.json").write_text('{"passed":"false","checks":["x"],"findings":[]}')
         with self.assertRaisesRegex(ValueError, "boolean"):
             self.run_pipeline(agent=invalid)

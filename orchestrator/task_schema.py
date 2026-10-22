@@ -10,6 +10,7 @@ class TaskType(str, Enum):
     """작업 종류. 값은 configs/agents.yaml의 파이프라인 action 이름과 일치한다."""
     PLAN = "PLAN"                     # 기획 및 작업 분해
     IMPLEMENT = "IMPLEMENT"           # 코드 구현 및 테스트
+    LOGO = "LOGO"
     UI_REVIEW = "UI_REVIEW"           # UI/UX 및 웹뷰 규격 검증
     CROSS_REVIEW = "CROSS_REVIEW"     # 심사 가이드 및 보안 검토
     FIX_REQUEST = "FIX_REQUEST"       # 오류 수정 요청

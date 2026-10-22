@@ -8,6 +8,7 @@
   "workflows": {"default_pipeline": [
     {"agent": "claude", "action": "PLAN"},
     {"agent": "codex", "action": "IMPLEMENT"},
+    {"agent": "codex", "action": "LOGO"},
     {"agent": "antigravity", "action": "UI_REVIEW"},
     {"agent": "claude", "action": "CROSS_REVIEW"},
     {"agent": "system", "action": "BUNDLE"}

@@ -1,7 +1,7 @@
 # Toss MiniApp AI Factory
 
-토스 미니앱의 기획 → 구현 → UI 검토 → 교차 검토 → 번들 검증을 연결하는 Python CLI입니다.
-현재 저장소는 자동화 엔진과 룰렛 PRD를 포함합니다. 룰렛 앱 소스는 아직 생성되지 않았습니다.
+토스 미니앱의 기획 → 구현 → 로고 제작 → UI 검토 → 교차 검토 → 번들 검증을 연결하는 Python CLI입니다.
+현재 저장소는 자동화 엔진과 룰렛 앱 프로젝트를 포함합니다.
 
 ## 실행 환경
 
@@ -34,7 +34,7 @@ python -m orchestrator.orchestrator projects/roulette --idea "점심 메뉴 선�
 - `workspace_dir`: 저장소 루트 기준 상대 경로 또는 절대 경로. 기본 프로젝트는 그 아래 `roulette`입니다.
 - `timeout_seconds`: 명령 하나의 제한 시간. 기본 1800초.
 - `cli_command`, `exec_args`: 실행 파일과 인자. `{prompt}`가 있으면 해당 인자에 프롬프트를 치환하고, 없으면 UTF-8 stdin으로 전달합니다. 인자는 셸을 거치지 않고 전달합니다.
-- 워크플로는 PLAN, IMPLEMENT, UI_REVIEW, CROSS_REVIEW, BUNDLE 순서를 검증합니다.
+- 워크플로는 PLAN, IMPLEMENT, LOGO, UI_REVIEW, CROSS_REVIEW, BUNDLE 순서를 검증합니다.
 - 단계별 `agent`를 바꾸면 해당 설정의 CLI를 사용합니다.
 
 기본 설정은 각 CLI의 비대화형 실행 규격에 맞춰 구성되어 있습니다:
@@ -50,9 +50,24 @@ Windows npm/npx는 npm의 Node 진입점을 직접 실행합니다. 다른 `.cmd
 |---|---|
 | PLAN | 비어 있지 않은 PRD.md와 이번 실행의 유효한 tasks.json |
 | IMPLEMENT | CLI 성공 + typecheck, lint, test, build 스크립트 성공 |
+| LOGO | 600×600 불투명 RGB PNG + LOGO.md + 이번 실행의 통과 보고서 및 PNG SHA-256 일치 |
 | UI_REVIEW | 이번 실행의 JSON 리뷰에서 passed가 boolean true이고 checks가 존재 |
 | CROSS_REVIEW | 별도의 JSON 리뷰 통과 |
 | BUNDLE | 검증 스크립트 재실행 + bundle 성공 + 새로 생성/갱신된 비어 있지 않은 .ait 파일 |
+
+### 로고 제작 및 검토
+
+`IMPLEMENT` 다음에 Codex가 `LOGO` 단계를 수행합니다. PRD의 서비스 특성을 바탕으로 독창적인 로고를 만들고 앱의 로컬 아이콘 참조에 반영합니다.
+
+- `public/logo-600x600.png`: 정확히 600 × 600px 정사각형. 배경색이 전체를 채우며 둥근 외곽 모서리·둥근 사각 프레임·투명 배경은 금지합니다. 자동 검사를 위해 **8-bit RGB, 비인터레이스 PNG**로 내보냅니다. RGBA 파일은 완전히 불투명하더라도 RGB로 변환해야 합니다.
+- 작은 크기(24/32/48px)에서도 선명하고 서비스 특성이 드러나는 단순한 형태를 사용하며 밝은 배경과 다크 모드 배경에서 실제 이미지를 확인합니다.
+- 다른 앱·브랜드·캐릭터를 모방하지 않습니다. 토스 제공 아이콘·이미지 및 2차 가공물, 사람 얼굴(실제처럼 보이는 AI 얼굴 포함)은 사용하지 않습니다.
+- 편집 가능한 원본과 `LOGO.md`에 콘셉트·색상·제작 방식·리소스 출처와 이용 조건·유사 로고 비교·실제 시각 검토 근거를 기록합니다.
+- 이미지 생성 도구가 없으면 직접 설계한 기하학 벡터를 PNG로 렌더링합니다. 렌더링이나 이미지 확인을 수행할 수 없으면 임시 이미지로 통과시키지 않고 실패합니다.
+
+엔진은 PNG 구조·체크섬·픽셀 스트림·크기·불투명 형식을 직접 검사하며, `.factory/<run-id>/LOGO.json`의 SHA-256으로 검토한 파일과 현재 파일이 같은지 확인합니다. 재개 시와 번들 생성 전후에도 다시 검사합니다. 디자인 적합성은 제작 근거와 UI·교차 검토로 확인하며, 자동 검사가 저작권이나 상표 비침해를 보장하지는 않습니다. 제출 전 권리·유사성 최종 확인은 사람의 검토 항목으로 남깁니다.
+
+로고는 번들과 함께 전달할 산출물이며 콘솔 업로드는 자동 수행하지 않습니다. 새 단계가 없던 과거 실행을 재개하면 PLAN/IMPLEMENT까지만 재사용하고 LOGO부터 실행하여 후속 리뷰를 새로 받습니다. 커스텀 설정에도 LOGO 단계를 추가해야 합니다.
 
 미니앱의 `package.json`에는 `typecheck`, `lint`, `test`, `build`, `bundle` 스크립트가 필요합니다.
 `test`는 watch 모드를 사용하지 않아야 합니다. `bundle`은 실제 `ait build`를 수행하도록 구성합니다.

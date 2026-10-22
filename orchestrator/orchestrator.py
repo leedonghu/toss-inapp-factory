@@ -1,6 +1,6 @@
 """Fail-closed mini-app pipeline. Run with python -m orchestrator.orchestrator."""
 # 여러 AI 에이전트(claude, codex, antigravity)를 순서대로 호출해 토스 미니앱을
-# 기획 → 구현 → UI 리뷰 → 교차 리뷰 → 번들링까지 만드는 파이프라인.
+# 기획 → 구현 → 로고 제작 → UI 리뷰 → 교차 리뷰 → 번들링까지 만드는 파이프라인.
 # "Fail-closed": 어떤 단계든 명령 실패나 산출물 검증 실패가 있으면 즉시 중단하고,
 # 다음 단계로 넘어가지 않는다. 배포/업로드는 하지 않고 사람 검토 직전에서 멈춘다.
 import argparse
@@ -15,6 +15,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from orchestrator.logo import LOGO_PATH, LOGO_RULES, validate_png
 from orchestrator.process import CommandError, resolve_command, run_command
 from orchestrator.task_schema import TaskMessage, TaskType, TaskStatus
 from orchestrator.activity import ROLES, record_event, record_check, write_report
@@ -23,7 +24,7 @@ from integrations.toss_harness import TossHarnessIntegration
 ROOT = Path(__file__).resolve().parents[1]                 # 저장소 루트
 DEFAULT_CONFIG = ROOT / "configs" / "agents.yaml"
 # 파이프라인은 반드시 이 순서의 단계로 구성되어야 한다 (설정 파일로 순서를 바꿀 수 없음).
-ACTIONS = ["PLAN", "IMPLEMENT", "UI_REVIEW", "CROSS_REVIEW", "BUNDLE"]
+ACTIONS = ["PLAN", "IMPLEMENT", "LOGO", "UI_REVIEW", "CROSS_REVIEW", "BUNDLE"]
 # 하네스가 직접 실행해 결과를 보장하는 npm 검사 (리뷰어는 이 로그를 근거로 삼는다).
 CHECK_SCRIPTS = ["typecheck", "lint", "test", "build"]
 
@@ -170,6 +171,14 @@ class TossAIFactoryOrchestrator:
             raise ValueError("Completed review is not passed")
         return result
 
+    def validate_logo(self, report):
+        digest = validate_png(self.require_file(LOGO_PATH))
+        self.require_file("LOGO.md")
+        result = self.validate_review(report)
+        if result.get("sha256") != digest:
+            raise ValueError("Logo report sha256 does not match current PNG")
+        return result
+
     def run_checks(self, harness, index):
         """npm 검사를 순서대로 실행하고 출력을 `NN-npm-<스크립트>.*.log`로 남긴다."""
         harness.log_prefix = self.run_dir / f"{index:02d}-npm"
@@ -193,7 +202,7 @@ class TossAIFactoryOrchestrator:
     def collect_manual_checks(self):
         """리뷰 보고서들의 manual_checks를 모아 manual_checks.json에 기록하고 반환한다."""
         manual = {}
-        for action in ("UI_REVIEW", "CROSS_REVIEW"):
+        for action in ("LOGO", "UI_REVIEW", "CROSS_REVIEW"):
             report = (self.run_dir / f"{action}.json").relative_to(self.project_dir)
             manual[action] = self.read_review(report)["manual_checks"]
         (self.run_dir / "manual_checks.json").write_text(
@@ -225,7 +234,8 @@ class TossAIFactoryOrchestrator:
         if len(completed) >= 2:
             self.require_file("package.json")
         for action in ACTIONS[2:len(completed)]:
-            self.validate_review((source / f"{action}.json").relative_to(self.project_dir))
+            validator = self.validate_logo if action == "LOGO" else self.validate_review
+            validator((source / f"{action}.json").relative_to(self.project_dir))
         return source, completed
 
     def run_full_pipeline(self, app_idea, resume=None):
@@ -250,9 +260,11 @@ class TossAIFactoryOrchestrator:
                 if action == "PLAN":
                     shutil.copyfile(self.require_file((source / "tasks.json").relative_to(self.project_dir)), self.run_dir / "tasks.json")
                     record.output_artifacts = ["PRD.md", tasks_path]
-                elif action in ("UI_REVIEW", "CROSS_REVIEW"):
+                elif action in ("LOGO", "UI_REVIEW", "CROSS_REVIEW"):
                     shutil.copyfile(self.require_file((source / f"{action}.json").relative_to(self.project_dir)), self.run_dir / f"{action}.json")
                     record.output_artifacts = [(self.run_dir / f"{action}.json").relative_to(self.project_dir).as_posix()]
+                    if action == "LOGO":
+                        record.output_artifacts += [LOGO_PATH, "LOGO.md"]
                 self.save_task(record, index)
             print(f"[AI Factory] Resuming {source.name} from {ACTIONS[len(completed)]}", flush=True)
         harness = TossHarnessIntegration(self.project_dir, self.timeout)
@@ -280,7 +292,8 @@ class TossAIFactoryOrchestrator:
                     self.run_agent(step["agent"], common +
                         f"Idea: {app_idea}\nRead and update PRD.md, preserving existing requirements. "
                         f'Write {tasks_path} as {{"tasks":[{{"title":"...","acceptance_criteria":["..."]}}]}}. '
-                        "Include app implementation and tests.", index)
+                        "Include app implementation, tests and logo design acceptance criteria. " + LOGO_RULES +
+                        " At PLAN, only document these requirements; do not create the app or logo yet.", index)
                     # 에이전트의 "완료했다"는 말을 믿지 않고, 산출물을 직접 검증한다.
                     self.validate_plan(tasks_path)
                     task.output_artifacts = ["PRD.md", tasks_path]
@@ -294,8 +307,21 @@ class TossAIFactoryOrchestrator:
                         "Implement browser SDK fallback and meaningful tests. Run all checks including bundle.", index)
                     self.run_checks(harness, index)
                     task.output_artifacts = ["package.json"]
+                elif action == "LOGO":
+                    report = (self.run_dir / "LOGO.json").relative_to(self.project_dir).as_posix()
+                    self.run_agent(step["agent"], common + LOGO_RULES +
+                        f' Write {report} as {{"passed":true,"sha256":"SHA256 of final PNG",'
+                        '"findings":[],"checks":["specific visual and provenance evidence"],'
+                        '"manual_checks":["final brand similarity and rights review before submission"]}. '
+                        'Set passed=false if any logo requirement is unmet.', index)
+                    result = self.read_review(report)
+                    task.output_artifacts = [LOGO_PATH, "LOGO.md", report]
+                    if not result["passed"]:
+                        task.status = TaskStatus.NEEDS_FIX
+                        raise ValueError(f"LOGO rejected: {result['findings']}")
+                    self.validate_logo(report)
                 elif action in ("UI_REVIEW", "CROSS_REVIEW"):
-                    # 3), 4) 리뷰: 코드 수정 없이 검토만 하고, 결과를 JSON 보고서로 작성하게 한다.
+                    # 4), 5) 리뷰: 코드 수정 없이 검토만 하고, 결과를 JSON 보고서로 작성하게 한다.
                     report = (self.run_dir / f"{action}.json").relative_to(self.project_dir).as_posix()
                     scope = ("Mobile safe areas, touch behavior, accessibility and UI; do not claim "
                              "device testing unless performed." if action == "UI_REVIEW" else
@@ -307,8 +333,11 @@ class TossAIFactoryOrchestrator:
                                  f"their output is in {', '.join(logs)}. Use these logs as evidence instead of "
                                  "running the commands." if logs else "")
                     self.run_agent(step["agent"], common + scope + files_hint + logs_hint +
+                        " Review public/logo-600x600.png and LOGO.md against these logo requirements: " + LOGO_RULES +
+                        " This is review only: do not create or edit logo assets. Use image viewing tools if available; "
+                        "unavailable visual checks must be listed in manual_checks. " +
                         " Do not run shell or terminal commands (never call run_command); use only file read/write tools "
-                        "(view_file and write_to_file)."
+                        "(view_file, image viewing and write_to_file)."
                         f' Read PRD.md and inspect implementation files directly. Write {report} as '
                         '{"passed":true,"findings":[],"checks":["evidence of checks performed"],'
                         '"manual_checks":["verification only a human can do"]}. '
@@ -323,9 +352,11 @@ class TossAIFactoryOrchestrator:
                         task.status = TaskStatus.NEEDS_FIX
                         raise ValueError(f"{action} rejected: {result['findings']}")
                 else:
-                    # 5) BUNDLE: 리뷰 이후 코드가 바뀌었을 수 있으므로 모든 검사를 다시 돌린 뒤 .ait 번들 생성.
+                    # 6) BUNDLE: 리뷰 이후 코드가 바뀌었을 수 있으므로 모든 검사를 다시 돌린 뒤 .ait 번들 생성.
                     self.run_checks(harness, index)
-                    task.output_artifacts = [harness.build_ait_bundle()]
+                    self.validate_logo((self.run_dir / "LOGO.json").relative_to(self.project_dir))
+                    task.output_artifacts = [harness.build_ait_bundle(), LOGO_PATH, "LOGO.md"]
+                    self.validate_logo((self.run_dir / "LOGO.json").relative_to(self.project_dir))
                 task.status = TaskStatus.SUCCESS
             except (CommandError, ValueError, OSError, TypeError, KeyError) as exc:
                 # 실패 사유를 기록으로 남긴 뒤 예외를 그대로 올려 파이프라인을 중단한다.
